@@ -1,65 +1,88 @@
 import argparse
-import os
+from pathlib import Path
+import re
 import sys
+from urllib.parse import urlparse
 
 
 class AppConfig:
+    """Хранит настройки приложения."""
 
     def __init__(
-        self,
-        package: str,
-        repo: str,
-        mode: str,
-        pkg_version: str,
-        ascii_tree: bool,
-        max_depth: int,
-    ):
-        self.package = package
-        self.repo = repo
-        self.mode = mode
-        self.pkg_version = pkg_version
-        self.ascii_tree = ascii_tree
-        self.max_depth = max_depth
+            self,
+            package,
+            repo,
+            mode,
+            pkg_version,
+            ascii_tree,
+            max_depth
+        ):
+            self.package = package
+            self.repo = repo
+            self.mode = mode
+            self.pkg_version = pkg_version
+            self.ascii_tree = ascii_tree
+            self.max_depth = max_depth
 
-    def print_summary(self) -> None:
+    def print_summary(self):
+        """Выводит настройки в формате ключ-значение."""
         print(f"package: {self.package}")
         print(f"repo: {self.repo}")
         print(f"mode: {self.mode}")
-        print(f"pkg-version: {self.pkg_version}")
+        print(f"pkg_version: {self.pkg_version}")
         print(f"ascii: {self.ascii_tree}")
-        print(f"max_depth: {self.max_depth}")
+        print(f"max-depth: {self.max_depth}")
 
 
 class ConfigParser:
+    """Читает и проверяет аргументы командной строки."""
 
     def __init__(self):
         self._parser = argparse.ArgumentParser(
-            description="Инструмент визуализации графа зависимостей apt."
+            description="Визуализация зависимостей пакетов Ubuntu."
         )
-        self._setup_arguments() 
+        self._setup_arguments()
 
-    def _setup_arguments(self) -> None:
-        self._parser.add_argument("--package", required=True)
-        self._parser.add_argument("--repo", required=True)
+    def _setup_arguments(self):
+        """Описывает доступные аргументы."""
         self._parser.add_argument(
-            "--mode", required=True, choices=["real", "test"]
+            "--package",
+            required=True,
+            help="Имя анализируемого пакета"
         )
-        self._parser.add_argument("--pkg-version", required=True)
         self._parser.add_argument(
-            "--ascii", action="store_true", dest="ascii_tree"
-        )  
-        self._parser.add_argument("--max-depth", type=int, required=True)
+            "--repo",
+            required=True,
+            help="URL репозитория или путь к текстовому файлу"
+        )
+        self._parser.add_argument(
+            "--mode",
+            required=True,
+            choices=["real", "test"],
+            help="Режим работы"
+        )
+        self._parser.add_argument(
+            "--pkg-version",
+            required=True,
+            help="Версия анализируемого пакета"
+        )
+        self._parser.add_argument(
+            "--ascii",
+            action="store_true",
+            dest="ascii_tree",
+            help="Вывести зависимости в виде ASCII-дерева."
+        )
+        self._parser.add_argument(
+            "--max-depth",
+            required=True,
+            type=int,
+            help="Максимальная глубина анализа"
+        )
 
-    def parse(self) -> AppConfig:
+    def parse(self):
+        """Читает аргументы и создает объект настроек."""
         args = self._parser.parse_args()
-
-        if args.max_depth < 0:
-            raise ValueError("Максимальная глубина не может быть отрицательной")
-
-        if args.mode == "test" and not os.path.exists(args.repo):
-            raise FileNotFoundError(
-                f"Тестовый файл репозитория не найден: {args.repo}"
-            )
+        self._validate(args)
 
         return AppConfig(
             package=args.package,
@@ -67,23 +90,70 @@ class ConfigParser:
             mode=args.mode,
             pkg_version=args.pkg_version,
             ascii_tree=args.ascii_tree,
-            max_depth=args.max_depth,
+            max_depth=args.max_depth
         )
 
+    def _validate(self, args):
+        """Проверяет значения аргументов."""
+        self._validate_package(args.package, args.mode)
+        self._validate_repo(args.repo, args.mode)
 
-def main() -> None:
+        if not args.pkg_version.strip():
+            raise ValueError("Версия пакета не может быть пустой")
+
+        if any(char.isspace() for char in args.pkg_version):
+            raise ValueError("Версия пакета не должна содержать пробелы")
+
+        if args.max_depth < 0:
+            raise ValueError("Глубина не может быть отрицательной")
+
+    def _validate_package(self, package, mode):
+        """Проверяет имя пакета для выбранного режима."""
+        if mode == "test":
+            pattern = r"[A-Z]+"
+        else:
+            pattern = r"[a-z0-9][a-z0-9+.-]+"
+
+        if not re.fullmatch(pattern, package):
+            raise ValueError("Недопустимое имя пакета для выбранного режима")
+
+    def _validate_repo(self, repo, mode):
+        """Проверяет тестовый файл или URL репозитория."""
+        if mode == "test":
+            path = Path(repo)
+
+            if not path.is_file():
+                raise ValueError(f"Тестовый файл не найден: {repo}")
+
+            try:
+                with path.open("rb"):
+                    pass
+            except OSError as error:
+                raise ValueError(
+                    f"Не удалось открыть тестовый файл: {error}"
+                ) from error
+              
+            return
+         
+        address = urlparse(repo)
+
+        if address.scheme not in ("http", "https") or not address.hostname:
+            raise ValueError("Укажите URL репозитория с http:// или https://")
+
+
+def main():
+    """Запускает приложение"""
     try:
         parser = ConfigParser()
         config = parser.parse()
         config.print_summary()
+    except ValueError as error:
+        print(f"Ошибка: {error}", file=sys.stderr)
+        return 1
 
-    except (ValueError, FileNotFoundError) as err:
-        print(f"Ошибка валидации: {err}", file=sys.stderr)
-        sys.exit(1)
-    except Exception as err:
-        print(f"Критическая ошибка: {err}", file=sys.stderr)
-        sys.exit(1)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
+
