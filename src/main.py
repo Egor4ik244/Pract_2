@@ -3,6 +3,7 @@ from pathlib import Path
 import re
 import sys
 from urllib.parse import urlparse
+from repository import UbuntuRepository
 
 
 class AppConfig:
@@ -146,7 +147,28 @@ def main():
     try:
         parser = ConfigParser()
         config = parser.parse()
-        config.print_summary()
+
+        if config.mode == "test":
+            config.print_summary()
+            return 0;
+
+        repository = UbuntuRepository.from_url(config.repo)
+        dependencies = repository.get_dependencies(
+            config.package,
+            config.pkg_version
+        )
+
+        print(
+            f"Прямые зависимости "
+            f"{config.package} ({config.pkg_version}):"
+        )
+
+        if dependencies:
+            for dependency in dependencies:
+                print(dependency)
+        else:
+            print("Обязательных зависимостей нет")
+            
     except ValueError as error:
         print(f"Ошибка: {error}", file=sys.stderr)
         return 1
