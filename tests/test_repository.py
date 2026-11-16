@@ -148,6 +148,19 @@ class TestUbuntuRepository(unittest.TestCase):
                     "https://example.com/Packages"
                 )
 
+    def test_available_versions(self):
+        """Проверяет получение всех версий пакета."""
+        result = self.repository.get_versions("example-app")
+
+        self.assertEqual(result, ["1.0", "2.0"])
+
+    def test_versions_of_missing_package(self):
+        """Проверяет отсутствие версий неизвестного пакета."""
+        result = self.repository.get_versions("missing")
+
+        self.assertEqual(result, [])
+
 
 if __name__ == "__main__":
     unittest.main()
+    

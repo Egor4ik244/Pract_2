@@ -6,7 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-
+import json
 
 ROOT = Path(__file__).resolve().parent.parent
 MAIN = ROOT / "src" / "main.py"
@@ -25,6 +25,16 @@ class TestCli(unittest.TestCase):
             "Version: 5.2\n"
             "Pre-Depends: base-lib\n"
             "Depends: example-lib (>= 2.0), tool-a | tool-b\n"
+            "\n"
+            "Package: base-lib\n"
+            "Version: 1.0\n"
+            "\n"
+            "Package: example-lib\n"
+            "Version: 2.5\n"
+            "Depends: base-lib\n"
+            "\n"
+            "Package: tool-b\n"
+            "Version: 1.0\n"
         )
         (folder / "Packages").write_text(index, encoding="utf-8")
         handler = partial(
@@ -61,7 +71,8 @@ class TestCli(unittest.TestCase):
     def run_cli(self, arguments):
         """Запускает приложение и возвращает результат."""
         return subprocess.run(
-            [sys.executable, str(MAIN), *arguments],
+            [sys.executable, "-m","src.main", *arguments],
+            cwd=ROOT,
             capture_output=True,
             text=True,
         )
@@ -74,23 +85,21 @@ class TestCli(unittest.TestCase):
         return arguments
 
     def test_valid_arguments(self):
-        """Проверяет вывод прямых зависимостей."""
+        """Проверяет граф реальных пакетов через CLI."""
         result = self.run_cli(self.arguments)
+
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stderr, "")
-        expected = [
-            "Прямые зависимости bash (5.2):",
-            "base-lib",
-            "example-lib (>= 2.0)",
-            "tool-a | tool-b",
-        ]
-        self.assertEqual(result.stdout.splitlines(), expected)
 
-    def test_ascii_flag(self):
-        """Проверяет принятие флага ASCII."""
-        result = self.run_cli(self.arguments + ["--ascii"])
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("base-lib", result.stdout)
+        expected = [
+            "bash (5.2): base-lib (1.0), "
+            "example-lib (2.5), tool-b (1.0)",
+            "base-lib (1.0): -",
+            "example-lib (2.5): base-lib (1.0)",
+            "tool-b (1.0): -",
+        ]
+
+        self.assertEqual(result.stdout.splitlines(), expected)
 
     def test_missing_package_in_repository(self):
         """Проверяет сообщение об отсутствующем пакете."""
@@ -161,24 +170,42 @@ class TestCli(unittest.TestCase):
         self.assertNotEqual(result.stderr, "")
 
     def test_test_mode(self):
-        """Проверяет запуск с существующим тестовым файлом."""
+        """Проверяет построение графа из JSON."""
+        graph = {
+            "A": ["B", "C"],
+            "B": ["D"],
+            "C": ["D"],
+            "D": ["A"],
+        }
+
         with tempfile.TemporaryDirectory() as directory:
-            repo = Path(directory) / "repository.txt"
-            repo.write_text("", encoding="utf-8")
+            repo = Path(directory) / "repository.json"
+            repo.write_text(
+                json.dumps(graph),
+                encoding="utf-8",
+            )
 
             arguments = [
                 "--package", "A",
                 "--repo", str(repo),
                 "--mode", "test",
                 "--pkg-version", "1",
-                "--max-depth", "0",
+                "--max-depth", "3",
             ]
 
             result = self.run_cli(arguments)
 
-            self.assertEqual(result.returncode, 0)
-            self.assertIn("mode: test", result.stdout)
-            self.assertIn("max-depth: 0", result.stdout)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stderr, "")
+            self.assertEqual(
+                result.stdout.splitlines(),
+                [
+                    "A: B, C",
+                    "B: D",
+                    "C: D",
+                    "D: A",
+                ],
+            )
 
     def test_missing_test_file(self):
         """Проверяет ошибку при отсутствии тестового файла."""
@@ -201,7 +228,78 @@ class TestCli(unittest.TestCase):
                 result.stderr,
             )
 
+    def test_test_mode_depth_limit(self):
+        """Проверяет ограничение глубины через CLI."""
+        graph = {
+            "A": ["B"],
+            "B": ["C"],
+            "C": [],
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "repository.json"
+            repo.write_text(
+                json.dumps(graph),
+                encoding="utf-8",
+            )
+
+            arguments = [
+                "--package", "A",
+                "--repo", str(repo),
+                "--mode", "test",
+                "--pkg-version", "1",
+                "--max-depth", "1",
+            ]
+
+            result = self.run_cli(arguments)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                result.stdout.splitlines(),
+                ["A: B", "B: -"],
+            )
+
+    def test_invalid_test_repository(self):
+        """Проверяет сообщение об ошибке JSON."""
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "repository.json"
+            repo.write_text("{", encoding="utf-8")
+
+            arguments = [
+                "--package", "A",
+                "--repo", str(repo),
+                "--mode", "test",
+                "--pkg-version", "1",
+                "--max-depth", "2",
+            ]
+
+            result = self.run_cli(arguments)
+
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout, "")
+            self.assertIn(
+                "Не удалось прочитать тестовый репозиторий",
+                result.stderr,
+            )
+
+    def test_real_mode_zero_depth(self):
+        """Проверяет вывод только корня при глубине ноль."""
+        arguments = self.replace_argument("--max-depth", "0")
+        result = self.run_cli(arguments)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.splitlines(),
+            ["bash (5.2): -"],
+        )
+
+    def test_ascii_flag(self):
+        """Проверяет принятие флага ASCII."""
+        result = self.run_cli(self.arguments + ["--ascii"])
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("base-lib (1.0)", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
-

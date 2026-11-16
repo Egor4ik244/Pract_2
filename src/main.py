@@ -3,7 +3,10 @@ from pathlib import Path
 import re
 import sys
 from urllib.parse import urlparse
-from repository import UbuntuRepository
+from .repository import UbuntuRepository
+from .fixture_repository import FixtureRepository
+from .graph import DependencyGraph
+from .resolver import DependencyResolver
 
 
 class AppConfig:
@@ -142,32 +145,50 @@ class ConfigParser:
             raise ValueError("Укажите URL репозитория с http:// или https://")
 
 
+def format_node(node):
+    """Форматирует имя тестового или реального пакета."""
+    if isinstance(node, tuple):
+        package, version = node
+        return f"{package} ({version})"
+
+    return node
+
+
+def print_graph(graph):
+    """Выводит список связей построенного графа."""
+    for node, dependencies in graph.items():
+        targets = ", ".join(
+            format_node(dependency)
+            for dependency in dependencies
+        )
+        print(f"{format_node(node)}: {targets or '-'}")
+
+
 def main():
     """Запускает приложение"""
     try:
-        parser = ConfigParser()
-        config = parser.parse()
+        config = ConfigParser().parse()
 
         if config.mode == "test":
-            config.print_summary()
-            return 0;
-
-        repository = UbuntuRepository.from_url(config.repo)
-        dependencies = repository.get_dependencies(
-            config.package,
-            config.pkg_version
-        )
-
-        print(
-            f"Прямые зависимости "
-            f"{config.package} ({config.pkg_version}):"
-        )
-
-        if dependencies:
-            for dependency in dependencies:
-                print(dependency)
+            repository = FixtureRepository.from_file(config.repo)
+            repository.get_dependencies(config.package)
+            get_dependencies = repository.get_dependencies
+            root = config.package
         else:
-            print("Обязательных зависимостей нет")
+            repository = UbuntuRepository.from_url(config.repo)
+
+            repository.get_dependencies(
+                config.package,
+                config.pkg_version
+            )
+
+            resolver = DependencyResolver(repository)
+            get_dependencies = resolver.get_dependencies
+            root = (config.package, config.pkg_version)
+
+        builder = DependencyGraph(get_dependencies)
+        graph = builder.build(root, config.max_depth)
+        print_graph(graph)
             
     except ValueError as error:
         print(f"Ошибка: {error}", file=sys.stderr)
@@ -178,4 +199,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-

@@ -107,3 +107,18 @@ class UbuntuRepository:
             ) from error
 
         return cls(text)
+
+    def get_versions(self, package):
+        """Возвращает доступные версии пакета."""
+        versions = []
+
+        for fields in self._packages:
+            if fields.get("Package") != package:
+                continue
+
+            version = fields.get("Version")
+
+            if version and version not in versions:
+                versions.append(version)
+
+        return versions
