@@ -7,28 +7,25 @@ from .repository import UbuntuRepository
 from .fixture_repository import FixtureRepository
 from .graph import DependencyGraph
 from .resolver import DependencyResolver
+from .visualization import open_image, render_graph, to_ascii
 
 
 class AppConfig:
     """Хранит настройки приложения."""
 
-    def __init__(
-            self,
-            package,
-            repo,
-            mode,
-            pkg_version,
-            ascii_tree,
-            max_depth,
-            reverse=False
-        ):
-            self.package = package
-            self.repo = repo
-            self.mode = mode
-            self.pkg_version = pkg_version
-            self.ascii_tree = ascii_tree
-            self.max_depth = max_depth
-            self.reverse = reverse
+    def __init__(self, args):
+            """Сохраняет проверенные параметры командной строки."""
+            self.package = args.package
+            self.repo = args.repo
+            self.mode = args.mode
+            self.pkg_version = args.pkg_version
+            self.ascii_tree = args.ascii_tree
+            self.max_depth = args.max_depth
+            self.reverse = args.reverse
+            self.output = args.output
+            self.no_open = args.no_open
+            self.no_render = args.no_render
+
 
     def print_summary(self):
         """Выводит настройки в формате ключ-значение."""
@@ -89,21 +86,28 @@ class ConfigParser:
             action="store_true",
             help="Вывести обратные зависимости тестового пакета"
         )
+        self._parser.add_argument(
+            "--output",
+            default="output/dependencies",
+            help="Путь результата без расширения",
+        )
+        self._parser.add_argument(
+            "--no-open",
+            action="store_true",
+            help="Не открывать созданное изображение"
+        )
+        self._parser.add_argument(
+            "--no-render",
+            action="store_true",
+            help="Вывести граф только в текстовом виде"
+        )
 
     def parse(self):
         """Читает аргументы и создает объект настроек."""
         args = self._parser.parse_args()
         self._validate(args)
 
-        return AppConfig(
-            package=args.package,
-            repo=args.repo,
-            mode=args.mode,
-            pkg_version=args.pkg_version,
-            ascii_tree=args.ascii_tree,
-            max_depth=args.max_depth,
-            reverse=args.reverse
-        )
+        return AppConfig(args)
 
     def _validate(self, args):
         """Проверяет значения аргументов."""
@@ -124,6 +128,9 @@ class ConfigParser:
                 "Обратные зависимости пока доступны "
                 "только в тестовом режиме"
             )
+
+        if not args.output.strip():
+            raise ValueError("Путь результата не может быть пустым")
 
     def _validate_package(self, package, mode):
         """Проверяет имя пакета для выбранного режима."""
@@ -206,9 +213,27 @@ def main():
 
         builder = DependencyGraph(get_dependencies)
         graph = builder.build(root, config.max_depth)
-        print_graph(graph)
+
+        if config.ascii_tree:
+            print(to_ascii(graph, root))
+        else:
+            print_graph(graph)
+
+        if not config.no_render:
+            dot_path, image_path = render_graph(
+                graph,
+                config.output
+            )
+
+            print(f"DOT: {dot_path}")
+
+            if image_path is not None:
+                print(f"PNG: {image_path}")
+
+                if not config.no_open:
+                    open_image(image_path)
             
-    except ValueError as error:
+    except (ValueError, OSError, RecursionError) as error:
         print(f"Ошибка: {error}", file=sys.stderr)
         return 1
 

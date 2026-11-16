@@ -9,3 +9,4 @@ env/
 .AppleDouble
 .LSOverride
 .vscode/
+output/

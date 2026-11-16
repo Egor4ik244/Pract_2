@@ -69,9 +69,15 @@ class TestCli(unittest.TestCase):
         ]
 
     def run_cli(self, arguments):
-        """Запускает приложение и возвращает результат."""
+        """Запускает CLI без создания файлов и открытия окон."""
         return subprocess.run(
-            [sys.executable, "-m","src.main", *arguments],
+            [
+                sys.executable,
+                "-m",
+                "src.main",
+                *arguments,
+                "--no-render",
+            ],
             cwd=ROOT,
             capture_output=True,
             text=True,
@@ -294,11 +300,21 @@ class TestCli(unittest.TestCase):
         )
 
     def test_ascii_flag(self):
-        """Проверяет принятие флага ASCII."""
+        """Проверяет вывод ASCII-дерева через CLI."""
         result = self.run_cli(self.arguments + ["--ascii"])
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("base-lib (1.0)", result.stdout)
+
+        self.assertEqual(
+            result.stdout.splitlines(),
+            [
+                "bash (5.2)",
+                "|-- base-lib (1.0)",
+                "|-- example-lib (2.5)",
+                "|   `-- base-lib (1.0) [seen]",
+                "`-- tool-b (1.0)",
+            ],
+        )
 
     def test_reverse_mode(self):
         """Проверяет обратный обход через CLI."""
