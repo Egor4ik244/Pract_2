@@ -19,7 +19,8 @@ class AppConfig:
             mode,
             pkg_version,
             ascii_tree,
-            max_depth
+            max_depth,
+            reverse=False
         ):
             self.package = package
             self.repo = repo
@@ -27,6 +28,7 @@ class AppConfig:
             self.pkg_version = pkg_version
             self.ascii_tree = ascii_tree
             self.max_depth = max_depth
+            self.reverse = reverse
 
     def print_summary(self):
         """Выводит настройки в формате ключ-значение."""
@@ -82,6 +84,11 @@ class ConfigParser:
             type=int,
             help="Максимальная глубина анализа"
         )
+        self._parser.add_argument(
+            "--reverse",
+            action="store_true",
+            help="Вывести обратные зависимости тестового пакета"
+        )
 
     def parse(self):
         """Читает аргументы и создает объект настроек."""
@@ -94,7 +101,8 @@ class ConfigParser:
             mode=args.mode,
             pkg_version=args.pkg_version,
             ascii_tree=args.ascii_tree,
-            max_depth=args.max_depth
+            max_depth=args.max_depth,
+            reverse=args.reverse
         )
 
     def _validate(self, args):
@@ -110,6 +118,12 @@ class ConfigParser:
 
         if args.max_depth < 0:
             raise ValueError("Глубина не может быть отрицательной")
+
+        if args.reverse and args.mode != "test":
+            raise ValueError(
+                "Обратные зависимости пока доступны "
+                "только в тестовом режиме"
+            )
 
     def _validate_package(self, package, mode):
         """Проверяет имя пакета для выбранного режима."""
@@ -172,6 +186,10 @@ def main():
         if config.mode == "test":
             repository = FixtureRepository.from_file(config.repo)
             repository.get_dependencies(config.package)
+
+            if config.reverse:
+                repository = repository.reversed()
+
             get_dependencies = repository.get_dependencies
             root = config.package
         else:

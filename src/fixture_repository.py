@@ -64,3 +64,17 @@ class FixtureRepository:
             raise ValueError(f"Пакет {package} не найден")
 
         return self._graph[package].copy()
+
+    def reversed(self):
+        """Создаёт репозиторий с обратным направлением связей."""
+        reversed_graph = {
+            package: []
+            for package in self._graph
+        }
+
+        for package, dependencies in self._graph.items():
+            for dependency in dependencies:
+                if package not in reversed_graph[dependency]:
+                    reversed_graph[dependency].append(package)
+
+        return FixtureRepository(reversed_graph)

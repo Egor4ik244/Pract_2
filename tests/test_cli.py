@@ -300,6 +300,48 @@ class TestCli(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("base-lib (1.0)", result.stdout)
 
+    def test_reverse_mode(self):
+        """Проверяет обратный обход через CLI."""
+        graph = {
+            "A": ["B"],
+            "B": ["C"],
+            "C": [],
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "repository.json"
+            repo.write_text(
+                json.dumps(graph),
+                encoding="utf-8",
+            )
+
+            arguments = [
+                "--package", "C",
+                "--repo", str(repo),
+                "--mode", "test",
+                "--pkg-version", "1",
+                "--max-depth", "1",
+                "--reverse",
+            ]
+
+            result = self.run_cli(arguments)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                result.stdout.splitlines(),
+                ["C: B", "B: -"],
+            )
+
+    def test_reverse_rejects_real_mode(self):
+        """Проверяет ограничение обратного режима."""
+        result = self.run_cli(self.arguments + ["--reverse"])
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(
+            "только в тестовом режиме",
+            result.stderr,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -131,6 +131,75 @@ class TestDependencyGraph(unittest.TestCase):
         self.assertEqual(result, graph)
         self.assertEqual(calls, ["AB", "C"])
 
+    def test_reverse_dependencies(self):
+        """Проверяет прямые и транзитивные обратные зависимости."""
+        repository = FixtureRepository(
+            {
+                "A": ["B"],
+                "B": ["C"],
+                "C": [],
+            }
+        )
+        reverse_repository = repository.reversed()
+        builder = DependencyGraph(
+            reverse_repository.get_dependencies
+        )
+
+        self.assertEqual(
+            builder.build("C", 2),
+            {
+                "C": ["B"],
+                "B": ["A"],
+                "A": [],
+            },
+        )
+
+        self.assertEqual(
+            repository.get_dependencies("A"),
+            ["B"],
+        )
+
+    def test_reverse_cycle(self):
+        """Проверяет цикл в обратном графе."""
+        repository = FixtureRepository(
+            {
+                "A": ["B"],
+                "B": ["C"],
+                "C": ["A"],
+            }
+        )
+        reverse_repository = repository.reversed()
+        builder = DependencyGraph(
+            reverse_repository.get_dependencies
+        )
+
+        self.assertEqual(
+            builder.build("A", 10),
+            {
+                "A": ["C"],
+                "C": ["B"],
+                "B": ["A"],
+            },
+        )
+
+    def test_no_reverse_dependencies(self):
+        """Проверяет пакет, от которого никто не зависит."""
+        repository = FixtureRepository(
+            {
+                "A": ["B"],
+                "B": [],
+            }
+        )
+        reverse_repository = repository.reversed()
+        builder = DependencyGraph(
+            reverse_repository.get_dependencies
+        )
+
+        self.assertEqual(
+            builder.build("A", 3),
+            {"A": []},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
