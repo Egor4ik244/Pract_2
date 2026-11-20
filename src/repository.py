@@ -25,27 +25,35 @@ class UbuntuRepository:
                 continue
 
             if line.startswith((" ", "\t")):
-                if current_field is None:
-                    raise ValueError("Продолжение поля без начальной строки")
-
-                fields[current_field] += "\n" + line[1:]
+                self._append_continuation(fields, current_field, line)
                 continue
 
-            name, separator, value = line.partition(":")
-
-            if not separator or not name or name.strip() != name:
-                raise ValueError(f"Некорректная строка индекса: {line}")
-
-            if name in fields:
-                raise ValueError(f"Повторяющееся поле: {name}")
-
-            fields[name] = value.lstrip()
-            current_field = name
+            current_field = self._parse_field(fields, line)
 
         if fields:
             packages.append(fields)
 
         return packages
+
+    def _append_continuation(self, fields, current_field, line):
+        """Добавляет строку продолжения к текущему полю."""
+        if current_field is None:
+            raise ValueError("Продолжение поля без начальной строки")
+
+        fields[current_field] += "\n" + line[1:]
+
+    def _parse_field(self, fields, line):
+        """Сохраняет новое поле и возвращает его имя."""
+        name, separator, value = line.partition(":")
+
+        if not separator or not name or name.strip() != name:
+            raise ValueError(f"Некорректная строка индекса: {line}")
+
+        if name in fields:
+            raise ValueError(f"Повторяющееся поле: {name}")
+
+        fields[name] = value.lstrip()
+        return name
 
     def get_dependencies(self, package, version):
         """Возвращает группы прямых обязательных зависимостей."""

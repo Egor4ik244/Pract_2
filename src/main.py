@@ -47,7 +47,13 @@ class ConfigParser:
         self._setup_arguments()
 
     def _setup_arguments(self):
-        """Описывает доступные аргументы."""
+        """Настраивает группы аргументов."""
+        self._setup_repository_arguments()
+        self._setup_analysis_arguments()
+        self._setup_output_arguments()
+
+    def _setup_repository_arguments(self):
+        """Описывает источник данных и корневой пакет."""
         self._parser.add_argument(
             "--package",
             required=True,
@@ -69,12 +75,9 @@ class ConfigParser:
             required=True,
             help="Версия анализируемого пакета"
         )
-        self._parser.add_argument(
-            "--ascii",
-            action="store_true",
-            dest="ascii_tree",
-            help="Вывести зависимости в виде ASCII-дерева."
-        )
+
+    def _setup_analysis_arguments(self):
+        """Описывает настройки обхода графа."""
         self._parser.add_argument(
             "--max-depth",
             required=True,
@@ -85,6 +88,15 @@ class ConfigParser:
             "--reverse",
             action="store_true",
             help="Вывести обратные зависимости тестового пакета"
+        )
+
+    def _setup_output_arguments(self):
+        """Описывает настройки визуализации."""
+        self._parser.add_argument(
+            "--ascii",
+            action="store_true",
+            dest="ascii_tree",
+            help="Вывести зависимости в виде ASCII-дерева."
         )
         self._parser.add_argument(
             "--output",
@@ -185,54 +197,63 @@ def print_graph(graph):
         print(f"{format_node(node)}: {targets or '-'}")
 
 
+def prepare_graph_source(config):
+    """Возвращает корень и метод получения зависимостей."""
+    if config.mode == "test":
+        repository = FixtureRepository.from_file(config.repo)
+        repository.get_dependencies(config.package)
+
+        if config.reverse:
+            repository = repository.reversed()
+
+        return config.package, repository.get_dependencies
+
+    repository = UbuntuRepository.from_url(config.repo)
+    repository.get_dependencies(
+        config.package,
+        config.pkg_version,
+    )
+
+    resolver = DependencyResolver(repository)
+    root = (config.package, config.pkg_version)
+
+    return root, resolver.get_dependencies
+
+
+def show_graph(graph, root, config):
+    """Выводит граф и при необходимости создаёт изображение."""
+    if config.ascii_tree:
+        print(to_ascii(graph, root))
+    else:
+        print_graph(graph)
+
+    if config.no_render:
+        return
+
+    dot_path, image_path = render_graph(
+        graph,
+        config.output,
+    )
+    print(f"DOT: {dot_path}")
+
+    if image_path is not None:
+        print(f"PNG: {image_path}")
+
+        if not config.no_open:
+            open_image(image_path)
+
+
 def main():
-    """Запускает приложение"""
+    """Запускает приложение."""
     try:
         config = ConfigParser().parse()
-
-        if config.mode == "test":
-            repository = FixtureRepository.from_file(config.repo)
-            repository.get_dependencies(config.package)
-
-            if config.reverse:
-                repository = repository.reversed()
-
-            get_dependencies = repository.get_dependencies
-            root = config.package
-        else:
-            repository = UbuntuRepository.from_url(config.repo)
-
-            repository.get_dependencies(
-                config.package,
-                config.pkg_version
-            )
-
-            resolver = DependencyResolver(repository)
-            get_dependencies = resolver.get_dependencies
-            root = (config.package, config.pkg_version)
+        root, get_dependencies = prepare_graph_source(config)
 
         builder = DependencyGraph(get_dependencies)
         graph = builder.build(root, config.max_depth)
 
-        if config.ascii_tree:
-            print(to_ascii(graph, root))
-        else:
-            print_graph(graph)
+        show_graph(graph, root, config)
 
-        if not config.no_render:
-            dot_path, image_path = render_graph(
-                graph,
-                config.output
-            )
-
-            print(f"DOT: {dot_path}")
-
-            if image_path is not None:
-                print(f"PNG: {image_path}")
-
-                if not config.no_open:
-                    open_image(image_path)
-            
     except (ValueError, OSError, RecursionError) as error:
         print(f"Ошибка: {error}", file=sys.stderr)
         return 1
